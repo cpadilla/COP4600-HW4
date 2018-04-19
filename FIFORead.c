@@ -1,5 +1,5 @@
-// COP 4600 - HW 3
-// Christopher Padilla, Richard Tsai, Matthew Winchester
+// COP 4600 - HW 4
+// Christofer Padilla, Richard Tsai, Matthew Winchester
 // output_module.c
 
 #include <linux/mutex.h>
