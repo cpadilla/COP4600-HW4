@@ -131,8 +131,6 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 
   err = copy_to_user(buffer, to_user, len);
 
-  kfree(to_user);
-
   fifo_buffer_ptr = temp;
 
   mutex_unlock(&queue_mutex);
