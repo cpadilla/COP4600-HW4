@@ -121,8 +121,8 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
 
     int i = 0;
     for(; fifo_buffer_size < BUFF_LEN && i < len; fifo_buffer_size++) {
-        if ((first_byte + fifo_buffer_size) < BUFF_LEN) {
-	        fifo_buffer_ptr[(first_byte+fifo_buffer_size)] = buffer[i++];
+        if ((fifo_buffer_size) < BUFF_LEN) {
+	        fifo_buffer_ptr[(fifo_buffer_size)] = buffer[i++];
         }
     }
 

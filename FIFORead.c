@@ -120,14 +120,20 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 
   for (read = 0; read < len; read++)
   {
-	  to_user[read] = fifo_buffer_ptr[first_byte];
-	  first_byte = (first_byte + 1) % BUFF_LEN;
+	  to_user[read] = fifo_buffer_ptr[read];
+
 	  fifo_buffer_size--;
   }
+
+  char *temp = kmalloc(BUFF_LEN, GFP_KERNEL);
+  
+  memcpy(temp, fifo_buffer_ptr+len, BUFF_LEN-len);
 
   err = copy_to_user(buffer, to_user, len);
 
   kfree(to_user);
+
+  fifo_buffer_ptr = temp;
 
   mutex_unlock(&queue_mutex);
 
