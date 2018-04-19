@@ -1,5 +1,5 @@
 // COP 4600 - HW 3
-// Christopher Padilla, Richard Tsai, Matthew Winchester
+// Christofer Padilla, Richard Tsai, Matthew Winchester
 // input_module.c
 
 #include <linux/init.h>
@@ -42,6 +42,8 @@ static int majorNum;
 static int numberOpens = 0;
 static struct class* charClass = NULL;
 static struct device* charDevice = NULL;
+
+static char UCF_buff[38] = "Undefeated 2018 National Champions UCF";
 
 static int __init char_init(void)
 {
@@ -119,10 +121,47 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
     printk(KERN_INFO "FIFODev: Current fifo_buffer_size: %d\n",fifo_buffer_size);
     printk(KERN_INFO "FIFODev: Received %zu characters from the user\n", len);
 
+	bool U = false;
+	bool C = false;
+	bool F = false;
+	bool replacingUCF = false;
+
     int i = 0;
     for(; fifo_buffer_size < BUFF_LEN && i < len; fifo_buffer_size++) {
+	printk(KERN_INFO "first_byte: %d\n", first_byte);
         if ((first_byte + fifo_buffer_size) < BUFF_LEN) {
-	        fifo_buffer_ptr[(first_byte+fifo_buffer_size)] = buffer[i++];
+
+		if (buffer[i] == 'U') {
+			U = true;
+		} else if (U && buffer[i] == 'C') {
+			C = true;
+		} else if (U && C && buffer[i] == 'F') {
+			F = true;
+			replacingUCF = true;
+			U = C = F = false;
+		} else {
+			U = C = F = false;
+		}
+
+
+		if (replacingUCF) {
+			// go back 2 spaces for the UCF we just read
+			fifo_buffer_size = fifo_buffer_size - 2;
+			int j = 0;
+			// Copy in the UCF String as long as there is room
+			for(; fifo_buffer_size < BUFF_LEN && j < 38; fifo_buffer_size++) {
+				fifo_buffer_ptr[first_byte+fifo_buffer_size] = UCF_buff[j];
+				j++;
+			}
+			// go back to normal mode, no need to adjust buffer pointer
+			replacingUCF=false;
+			i++;
+		}
+
+		if ((first_byte + fifo_buffer_size) < BUFF_LEN && i < len) {
+			fifo_buffer_ptr[(first_byte+fifo_buffer_size)] = buffer[i];
+			i++;
+		}
         }
     }
 
