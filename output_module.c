@@ -8,21 +8,23 @@
 #include <linux/device.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
+#include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <asm/uaccess.h>
-#define DEVICE_NAME "output_module"
-#define CLASS_NAME "output"
+#define DEVICE_NAME "FIFO_output_module"
+#define CLASS_NAME "FIFO_output"
 #define BUFF_LEN 2048
 
 extern char * fifo_buffer_ptr;
 extern short fifo_buffer_size;
+extern short first_byte;
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Christofer Padilla, Richard Tsai, Matthew Winchester");
 MODULE_DESCRIPTION("COP4600 - Programming Assignment 3 - Output_Module");
 MODULE_VERSION("2.0");
 
-static DEFINE_MUTEX(output_mutex);
+extern struct mutex queue_mutex;
 
 static int dev_open(struct inode *, struct file *);
 static int dev_release(struct inode *, struct file *);
@@ -76,7 +78,6 @@ static int __init char_init(void)
     return PTR_ERR(charDevice);
   }
 
-  mutex_init(&output_mutex);
   printk(KERN_INFO "FIFODev: Device class created\n");
 
   return 0;
@@ -84,7 +85,6 @@ static int __init char_init(void)
 
 static void __exit char_exit(void)
 {
-  mutex_destroy(&output_mutex);
   device_destroy(charClass, MKDEV(majorNum, 0));
   class_unregister(charClass);
   class_destroy(charClass);
@@ -94,86 +94,52 @@ static void __exit char_exit(void)
 
 static int dev_open(struct inode *inodep, struct file *filep)
 {
-  if(!mutex_trylock(&output_mutex))
-  {
-    printk(KERN_INFO "FIFODev: Device in use by another process");
-    return -EBUSY;
-  }
   printk(KERN_INFO "FIFODev: Device has been opened %d time(s)\n", ++numberOpens);
   return 0;
 }
 
 static int dev_release(struct inode *inodep, struct file *filep)
 {
-  mutex_unlock(&output_mutex);
   printk(KERN_INFO "FIFODev: Device closed\n");
   return 0;
 }
 
 static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
-  int error_count = 0;
+  char * to_user;
+  int read, err;
 
-  if(fifo_buffer_size > 0)
+  if (len > fifo_buffer_size)
   {
+    len = fifo_buffer_size;
+  }
+ 
+  to_user = kmalloc(len, GFP_KERNEL);
 
-    if (len > BUFF_LEN)
-    {
-        printk(KERN_INFO "FIFODev: User requested %zu bytes, more bytes than maximum buffer size: %d. Only %d bytes will be returned.\n", len, BUFF_LEN, fifo_buffer_size);
+  mutex_lock(&queue_mutex);
 
-        error_count = copy_to_user(buffer, fifo_buffer_ptr, fifo_buffer_size);
-        temp = (char *) vmalloc(sizeof(char) * BUFF_LEN);
-	temp[0] = '\0';
-	vfree(fifo_buffer_ptr);
-	fifo_buffer_ptr=temp;
-	if(error_count == 0)
-        {
-	  printk(KERN_INFO "FIFODev: %d characters sent to user\n", fifo_buffer_size);
-	  fifo_buffer_size = 0;
-
-          return 0;
-
-        }
-    }
-
-    else
-    {
-	printk(KERN_INFO "FIFODev: User wants %zu bytes, in our buffer there are %d\n",len,fifo_buffer_size);
-
-        error_count = copy_to_user(buffer, fifo_buffer_ptr, len);
-
-
-	temp = (char *) vmalloc(sizeof(char) * BUFF_LEN);
-
-	strncpy(temp, fifo_buffer_ptr+len, fifo_buffer_size-len);
-
-	vfree(fifo_buffer_ptr);
-
-	fifo_buffer_ptr = temp;
-
-	//fifo_buffer_ptr[fifo_buffer_size-len] = '\0';
-
-        if(error_count == 0)
-        {
-           printk(KERN_INFO "FIFODev: %d characters sent to user\n", fifo_buffer_size);
-	   fifo_buffer_size = fifo_buffer_size - len;
-           printk(KERN_INFO "FIFODev: After send fifo_buffer_size: %d\n",fifo_buffer_size);
-           return 0;
-
-        }
-
-
-	printk(KERN_INFO "Errors ocurred \n");
-
-    }
-
-      printk(KERN_INFO "FIFODev: Failed to send %d characters to the user\n", error_count);
-      return -EFAULT;
+  for (read = 0; read < len; read++)
+  {
+	  to_user[read] = fifo_buffer_ptr[first_byte];
+	  first_byte = (first_byte + 1) % BUFF_LEN;
+	  fifo_buffer_size--;
   }
 
-  printk(KERN_INFO "FIFODev: User tried to read the empty buffer\n");
-  copy_to_user(buffer, fifo_buffer_ptr, 0);
-  return 0;
+  err = copy_to_user(buffer, to_user, len);
+
+  kfree(to_user);
+
+  mutex_unlock(&queue_mutex);
+
+  if (err == 0) {
+	printk(KERN_INFO "FIFODev: %zu bytes read from FIFO read device.\n", len);
+
+ 	return len;
+  } else {
+	printk(KERN_INFO "FIFODev: Bytes couldn't be read from FIFO read device!\n");
+
+	return -EFAULT;
+  }
 }
 
 

@@ -10,21 +10,23 @@
 #include <linux/vmalloc.h>
 #include <asm/uaccess.h>
 #include <linux/mutex.h>
-#define DEVICE_NAME "input_module"
-#define CLASS_NAME "input"
+#define DEVICE_NAME "FIFO_input_module"
+#define CLASS_NAME "FIFO_input"
 #define BUFF_LEN 2048
 
 static char * fifo_buffer_ptr;
 EXPORT_SYMBOL(fifo_buffer_ptr);
 static short fifo_buffer_size;
 EXPORT_SYMBOL(fifo_buffer_size);
+static short first_byte;
+EXPORT_SYMBOL(first_byte);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Christofer Padilla, Richard Tsai, Matthew Winchester");
 MODULE_DESCRIPTION("COP4600 - Programming Assignment 3 - Input_Module");
-MODULE_VERSION("2.0");
-
-static DEFINE_MUTEX(input_mutex);
+MODULE_VERSION("2.0"); 
+struct mutex queue_mutex;
+EXPORT_SYMBOL(queue_mutex);
 
 static int dev_open(struct inode *, struct file *);
 static int dev_release(struct inode *, struct file *);
@@ -48,6 +50,8 @@ static int __init char_init(void)
   printk(KERN_INFO "FIFODev: Initializing FIFODev\n");
 
   majorNum = register_chrdev(0, DEVICE_NAME, &fops);
+
+  mutex_init(&queue_mutex);
 
   if(majorNum < 0)
   {
@@ -78,8 +82,6 @@ static int __init char_init(void)
 
   printk(KERN_INFO "FIFODev: Device class created\n");
 
-  mutex_init(&input_mutex);
-
   return 0;
 }
 
@@ -89,17 +91,17 @@ static void __exit char_exit(void)
   class_unregister(charClass);
   class_destroy(charClass);
   unregister_chrdev(majorNum, DEVICE_NAME);
-  mutex_unlock(&input_mutex);
+  mutex_destroy(&queue_mutex);
   printk(KERN_INFO "FIFODev: Exiting");
 }
 
 static int dev_open(struct inode *inodep, struct file *filep)
 {
-  if(!mutex_trylock(&input_mutex))
-  {
-    printk(KERN_INFO "FIFODev: Device in use by another process");
-    return -EBUSY;
-  }
+  // if(!mutex_trylock(&input_mutex))
+  // {
+  //   printk(KERN_INFO "FIFODev: Device in use by another process");
+  //   return -EBUSY;
+  // }
   printk(KERN_INFO "FIFODev: Device has been opened %d time(s)\n", ++numberOpens);
   return 0;
 }
@@ -112,38 +114,23 @@ static int dev_release(struct inode *inodep, struct file *filep)
 
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-  // Make sure the incoming fifo_buffer_ptr will not overflow us (-1 because we need space for \0)
-  if (len + fifo_buffer_size < BUFF_LEN-1)
-  {
-    strcat(fifo_buffer_ptr, buffer);
+    mutex_lock(&queue_mutex);
 
     printk(KERN_INFO "FIFODev: Current fifo_buffer_size: %d\n",fifo_buffer_size);
     printk(KERN_INFO "FIFODev: Received %zu characters from the user\n", len);
 
-    //strcat(fifo_buffer_ptr, "\0");
-    fifo_buffer_size = strlen(fifo_buffer_ptr);
-    fifo_buffer_ptr[fifo_buffer_size]='\0';
+    int i = 0;
+    for(; fifo_buffer_size < BUFF_LEN && i < len; fifo_buffer_size++) {
+        if ((first_byte + fifo_buffer_size) < BUFF_LEN) {
+	        fifo_buffer_ptr[(first_byte+fifo_buffer_size)] = buffer[i++];
+        }
+    }
+
     printk(KERN_INFO "FIFODev: After copy fifo_buffer_size: %d\n",fifo_buffer_size);
+    mutex_unlock(&queue_mutex);
+
     return len;
-  }
 
-  // The buffer will be too big, only read in the space we have left
-  else
-  {
-    int space_available = BUFF_LEN - fifo_buffer_size;
-    printk(KERN_INFO "FIFODev: Current fifo_buffer_size: %d\n",fifo_buffer_size);
-    printk(KERN_INFO "FIFODev: Buffer would overflow with %zu additional bytes, only attepmting to write %d bytes instead." ,len, space_available);
-
-    strncat(fifo_buffer_ptr, buffer, space_available);
-
-    printk(KERN_INFO "FIFODev: Received %d characters from the user\n", space_available);
-
-    //strcat(fifo_buffer_ptr, "\0");
-    fifo_buffer_size = strlen(fifo_buffer_ptr);
-    fifo_buffer_ptr[fifo_buffer_size]='\0';
-        printk(KERN_INFO "FIFODev: After copy fifo_buffer_size: %d\n",fifo_buffer_size);
-    return space_available;
-  }
 }
 
 module_init(char_init);
