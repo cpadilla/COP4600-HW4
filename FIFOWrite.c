@@ -1,4 +1,4 @@
-// COP 4600 - HW 3
+// COP 4600 - HW 4
 // Christofer Padilla, Richard Tsai, Matthew Winchester
 // input_module.c
 
